@@ -1,7 +1,5 @@
 # Museum of Science Fiction — Virtual Guide (Backend)
 
-> **[Документация на русском →](README_RUS.md)**
-
 Serverless backend for a virtual museum guide powered by AI.  
 A Unity app sends a question → Firebase Cloud Function forwards it to
 OpenAI (gpt-4o-mini) along with exhibit data → returns an answer.
@@ -320,3 +318,6 @@ You can:
 | Secret Manager       | 10,000 accesses/month       | free                           |
 
 At ~100 questions/day, OpenAI cost ≈ $1–3/month.
+
+
+> **[Документация на русском →](README_RUS.md)**
