@@ -1,8 +1,9 @@
 # Museum of Science Fiction — Virtual Guide (Backend)
 
 Serverless backend for a virtual museum guide powered by AI.  
-A Unity app sends a question → Firebase Cloud Function forwards it to
-OpenAI (gpt-4o-mini) along with exhibit data → returns an answer.
+A Unity app sends a question (text or voice) → Firebase Cloud Function
+forwards it to OpenAI along with exhibit data → returns an answer
+(text or voice).
 
 ---
 
@@ -12,19 +13,28 @@ OpenAI (gpt-4o-mini) along with exhibit data → returns an answer.
 Unity App
    │  HTTPS callable
    ▼
-Firebase Cloud Function  (museumGuide)
-   │  1. Loads exhibits from Firestore
-   │  2. Builds context + system prompt
-   │  3. Calls OpenAI API
+Firebase Cloud Function
+   ├── museumGuide        (text → text)
+   │     1. Load exhibits from Firestore
+   │     2. Build context + system prompt
+   │     3. Call OpenAI GPT → answer
+   │
+   └── museumVoiceGuide   (voice → voice)
+         1. Whisper STT  → transcribe audio
+         2. Load exhibits from Firestore
+         3. GPT           → generate answer
+         4. TTS           → synthesize speech
    ▼
-Answer → Unity UI
+Answer (text + audio) → Unity UI
 ```
 
 | Component          | Technology                        |
 |--------------------|-----------------------------------|
-| Cloud Function     | Firebase Functions v2 (Node 24)   |
+| Cloud Functions    | Firebase Functions v2 (Node 24)   |
 | Database           | Cloud Firestore                   |
-| AI Model           | OpenAI gpt-4o-mini                |
+| AI Model (text)    | OpenAI gpt-4o-mini                |
+| AI Model (STT)     | OpenAI Whisper                    |
+| AI Model (TTS)     | OpenAI TTS-1 (voice: nova)        |
 | Secrets            | Firebase Secret Manager           |
 | Client             | Unity (C#) + Firebase SDK         |
 
@@ -43,7 +53,7 @@ Firebase/
     ├── tsconfig.json
     ├── .eslintrc.js
     └── src/
-        ├── index.ts                # Cloud Function (museumGuide)
+        ├── index.ts                # Cloud Functions (museumGuide + museumVoiceGuide)
         └── uploadFacts.ts          # CSV → Firestore upload utility
 ```
 
@@ -169,6 +179,51 @@ curl -s -X POST \
   }
 }
 ```
+
+### Test Voice Guide (PowerShell)
+
+```powershell
+# Encode any WAV file to base64
+$audio = [Convert]::ToBase64String([IO.File]::ReadAllBytes("test.wav"))
+
+$body = @{
+    data = @{
+        audioBase64 = $audio
+        language = "en"
+    }
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "https://us-central1-museumai-2a2e6.cloudfunctions.net/museumVoiceGuide" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+### Expected voice response
+
+```json
+{
+  "result": {
+    "question": "Tell me about HAL 9000",
+    "answer": "HAL 9000 is the sentient computer from...",
+    "audioBase64": "<base64-encoded MP3>"
+  }
+}
+```
+
+### Available TTS Voices
+
+In `index.ts`, the `voice: "nova"` parameter can be changed to:
+
+| Voice | Description |
+|-------|-------------|
+| `alloy` | Neutral |
+| `echo` | Male, soft |
+| `fable` | British accent |
+| `onyx` | Male, deep |
+| `nova` | Female, friendly (default) |
+| `shimmer` | Female, warm |
 
 ### View logs
 
@@ -303,7 +358,8 @@ You can:
 | Deploy Firestore rules           | `firebase deploy --only firestore:rules`       |
 | Upload / update exhibits         | `cd functions && npm run build && node lib/uploadFacts.js` |
 | Set / update secret              | `firebase functions:secrets:set MUSEUM_AI`     |
-| Function logs                    | `firebase functions:log --only museumGuide`    |
+| Function logs (text)             | `firebase functions:log --only museumGuide`    |
+| Function logs (voice)            | `firebase functions:log --only museumVoiceGuide` |
 | Local emulator                   | `cd functions && npm run serve`                |
 
 ---
@@ -315,9 +371,12 @@ You can:
 | Cloud Functions      | 2M invocations/month        | Blaze plan                     |
 | Firestore reads      | 50,000/day                  | ~117 docs per invocation       |
 | OpenAI gpt-4o-mini   | —                           | ~$0.15 / 1M input tokens      |
+| OpenAI Whisper (STT) | —                           | ~$0.006 / minute              |
+| OpenAI TTS-1         | —                           | ~$0.015 / 1K characters       |
 | Secret Manager       | 10,000 accesses/month       | free                           |
 
-At ~100 questions/day, OpenAI cost ≈ $1–3/month.
+At ~100 text questions/day, OpenAI cost ≈ $1–3/month.  
+Voice requests cost ~$0.02–0.03 each (STT + GPT + TTS).
 
 
 > **[Документация на русском →](README_RUS.md)**

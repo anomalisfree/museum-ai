@@ -154,3 +154,128 @@ export const museumGuide = onCall(
     }
   }
 );
+
+// ── Voice Guide: STT → GPT → TTS ───────────────────────────
+
+/**
+ * Callable Cloud Function for voice interaction.
+ * Accepts base64-encoded audio, returns text answer + TTS audio.
+ * @param {object} request.data - { audioBase64: string, language?: string }
+ * @return {{ question: string, answer: string, audioBase64: string }}
+ */
+export const museumVoiceGuide = onCall(
+  {
+    secrets: [OPENAI_API_KEY],
+    timeoutSeconds: 120,
+  },
+  async (request) => {
+    const audioBase64 = (
+      request.data?.audioBase64 as string | undefined
+    )?.trim();
+    const language = (
+      request.data?.language as string | undefined
+    )?.trim() || "en";
+
+    if (!audioBase64) {
+      throw new HttpsError(
+        "invalid-argument",
+        "'audioBase64' is required (base64-encoded WAV/OGG)."
+      );
+    }
+
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY.value(),
+    });
+
+    // 1. Speech-to-Text (Whisper) ────────────────────────────
+    const audioBuffer = Buffer.from(audioBase64, "base64");
+    const audioFile = new File([audioBuffer], "audio.wav", {
+      type: "audio/wav",
+    });
+
+    const transcription =
+      await openai.audio.transcriptions.create({
+        model: "whisper-1",
+        file: audioFile,
+        language,
+      });
+
+    const question = transcription.text?.trim() ?? "";
+    logger.info("STT result", {question});
+
+    if (!question) {
+      return {
+        question: "",
+        answer: "I didn't hear a question.",
+        audioBase64: "",
+      };
+    }
+
+    // 2. Load exhibits ───────────────────────────────────────
+    const exhibits = await loadExhibits();
+    if (!exhibits.length) {
+      return {
+        question,
+        answer:
+          "Museum data is not loaded yet. " +
+          "Please try again later.",
+        audioBase64: "",
+      };
+    }
+
+    // 3. GPT answer ──────────────────────────────────────────
+    let answer: string;
+    try {
+      const completion = await openai.responses.create({
+        model: "gpt-4o-mini",
+        input: [
+          {role: "system", content: SYSTEM_PROMPT},
+          {
+            role: "system",
+            content:
+              "Exhibit data:\n" + buildContext(exhibits),
+          },
+          {role: "user", content: question},
+        ],
+        max_output_tokens: 350,
+      });
+
+      answer =
+        completion.output_text ??
+        "Sorry, I couldn't generate an answer.";
+    } catch (err) {
+      logger.error("voiceGuide GPT FAIL", err);
+      throw new HttpsError(
+        "internal",
+        "Failed to generate answer."
+      );
+    }
+
+    // 4. Text-to-Speech ──────────────────────────────────────
+    let ttsBase64 = "";
+    try {
+      const ttsResponse = await openai.audio.speech.create({
+        model: "tts-1",
+        voice: "nova",
+        input: answer,
+        response_format: "mp3",
+      });
+
+      const ttsBuffer = Buffer.from(
+        await ttsResponse.arrayBuffer()
+      );
+      ttsBase64 = ttsBuffer.toString("base64");
+    } catch (err) {
+      logger.error("voiceGuide TTS FAIL", err);
+      // Return text answer even if TTS fails
+    }
+
+    logger.info("museumVoiceGuide OK", {
+      question,
+      answerLen: answer.length,
+      hasAudio: ttsBase64.length > 0,
+    });
+
+    return {question, answer, audioBase64: ttsBase64};
+  }
+);
