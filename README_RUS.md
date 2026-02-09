@@ -72,7 +72,7 @@ npm install
 
 ```bash
 firebase login
-firebase use museumai-2a2e6
+firebase use <YOUR_PROJECT_ID>
 ```
 
 ### 3. Задать OpenAI API-ключ
@@ -156,7 +156,7 @@ max_output_tokens: 350,  // → увеличьте при необходимос
 
 ```powershell
 curl.exe -s -X POST `
-  "https://us-central1-museumai-2a2e6.cloudfunctions.net/museumGuide" `
+  "https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuide" `
   -H "Content-Type: application/json" `
   --data-raw "{""data"":{""question"":""Tell me about HAL 9000""}}"
 ```
@@ -165,7 +165,7 @@ curl.exe -s -X POST `
 
 ```bash
 curl -s -X POST \
-  "https://us-central1-museumai-2a2e6.cloudfunctions.net/museumGuide" \
+  "https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuide" \
   -H "Content-Type: application/json" \
   -d '{"data":{"question":"Tell me about HAL 9000"}}'
 ```
@@ -194,7 +194,7 @@ $body = @{
 } | ConvertTo-Json
 
 Invoke-RestMethod `
-  -Uri "https://us-central1-museumai-2a2e6.cloudfunctions.net/museumVoiceGuide" `
+  -Uri "https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/museumVoiceGuide" `
   -Method Post `
   -ContentType "application/json" `
   -Body $body
