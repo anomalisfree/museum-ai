@@ -274,7 +274,9 @@ firebase functions:log --only museumGuide
 - Импортируйте пакеты: `FirebaseAuth.unitypackage`, `FirebaseFunctions.unitypackage`
 - Добавьте `google-services.json` (Android) / `GoogleService-Info.plist` (iOS) в Assets
 
-### 2. Код вызова (C#)
+### 2. Только текст — `museumGuide` (C#)
+
+Отправить текстовый вопрос, получить текстовый ответ.
 
 ```csharp
 using Firebase.Functions;
@@ -283,7 +285,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class MuseumGuide : MonoBehaviour
+public class MuseumGuideText : MonoBehaviour
 {
     [SerializeField] private InputField questionInput;
     [SerializeField] private Text answerText;
@@ -295,9 +297,6 @@ public class MuseumGuide : MonoBehaviour
         functions = FirebaseFunctions.DefaultInstance;
     }
 
-    /// <summary>
-    /// Вызывается по нажатию кнопки «Спросить».
-    /// </summary>
     public void AskQuestion()
     {
         string question = questionInput.text.Trim();
@@ -317,8 +316,7 @@ public class MuseumGuide : MonoBehaviour
             {
                 if (task.IsFaulted)
                 {
-                    answerText.text =
-                        "Ошибка. Попробуйте позже.";
+                    answerText.text = "Ошибка. Попробуйте позже.";
                     Debug.LogError(task.Exception);
                     return;
                 }
@@ -326,28 +324,292 @@ public class MuseumGuide : MonoBehaviour
                 var result = task.Result.Data
                     as IDictionary<string, object>;
 
-                if (result != null &&
-                    result.TryGetValue("answer", out var ans))
-                {
-                    answerText.text = ans.ToString();
-                }
-                else
-                {
-                    answerText.text = "Нет ответа.";
-                }
+                answerText.text = result != null &&
+                    result.TryGetValue("answer", out var ans)
+                    ? ans.ToString()
+                    : "Нет ответа.";
             });
     }
 }
 ```
 
-### 3. Настройка сцены
+### 3. Текст + аудио — `museumGuideWithAudio` (C#)
 
-1. Создайте Canvas с `InputField`, `Button` и `Text`
-2. Прикрепите скрипт `MuseumGuide` к пустому GameObject
+Отправить текстовый вопрос, получить текстовый ответ **и** MP3-аудио.
+
+```csharp
+using Firebase.Functions;
+using Firebase.Extensions;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+public class MuseumGuideWithAudio : MonoBehaviour
+{
+    [SerializeField] private InputField questionInput;
+    [SerializeField] private Text answerText;
+    [SerializeField] private AudioSource audioSource;
+
+    private FirebaseFunctions functions;
+
+    private void Start()
+    {
+        functions = FirebaseFunctions.DefaultInstance;
+    }
+
+    public void AskQuestion()
+    {
+        string question = questionInput.text.Trim();
+        if (string.IsNullOrEmpty(question)) return;
+
+        answerText.text = "Думаю...";
+
+        var data = new Dictionary<string, object>
+        {
+            { "question", question }
+        };
+
+        functions
+            .GetHttpsCallable("museumGuideWithAudio")
+            .CallAsync(data)
+            .ContinueWithOnMainThread(task =>
+            {
+                if (task.IsFaulted)
+                {
+                    answerText.text = "Ошибка. Попробуйте позже.";
+                    Debug.LogError(task.Exception);
+                    return;
+                }
+
+                var result = task.Result.Data
+                    as IDictionary<string, object>;
+                if (result == null) return;
+
+                // Показать текстовый ответ
+                if (result.TryGetValue("answer", out var ans))
+                    answerText.text = ans.ToString();
+
+                // Воспроизвести аудио
+                if (result.TryGetValue("audioBase64", out var audio))
+                {
+                    string base64 = audio.ToString();
+                    if (!string.IsNullOrEmpty(base64))
+                        StartCoroutine(PlayMp3FromBase64(base64));
+                }
+            });
+    }
+
+    private IEnumerator PlayMp3FromBase64(string base64)
+    {
+        byte[] mp3Bytes = Convert.FromBase64String(base64);
+
+        string path = System.IO.Path.Combine(
+            Application.temporaryCachePath, "guide_answer.mp3");
+        System.IO.File.WriteAllBytes(path, mp3Bytes);
+
+        using (var www = UnityWebRequestMultimedia.GetAudioClip(
+            "file://" + path, AudioType.MPEG))
+        {
+            yield return www.SendWebRequest();
+
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                audioSource.clip =
+                    DownloadHandlerAudioClip.GetContent(www);
+                audioSource.Play();
+            }
+            else
+            {
+                Debug.LogError("Ошибка воспроизведения: "
+                    + www.error);
+            }
+        }
+    }
+}
+```
+
+### 4. Голос → голос — `museumVoiceGuide` (C#)
+
+Записать речь с микрофона, отправить на сервер, получить текст + аудио ответ.
+
+```csharp
+using Firebase.Functions;
+using Firebase.Extensions;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+public class MuseumVoiceGuide : MonoBehaviour
+{
+    [SerializeField] private Text answerText;
+    [SerializeField] private AudioSource audioSource;
+    [SerializeField] private Button recordButton;
+    [SerializeField] private int recordSeconds = 10;
+    [SerializeField] private int sampleRate = 16000;
+    [SerializeField] private string language = "en";
+
+    private FirebaseFunctions functions;
+    private AudioClip recording;
+    private bool isRecording;
+
+    private void Start()
+    {
+        functions = FirebaseFunctions.DefaultInstance;
+    }
+
+    // ── Кнопка: начать/остановить запись ────────────────
+    public void ToggleRecording()
+    {
+        if (!isRecording)
+            StartRecording();
+        else
+            StopAndSend();
+    }
+
+    private void StartRecording()
+    {
+        if (Microphone.devices.Length == 0)
+        {
+            answerText.text = "Микрофон не найден!";
+            return;
+        }
+
+        isRecording = true;
+        recording = Microphone.Start(
+            Microphone.devices[0], false,
+            recordSeconds, sampleRate);
+        answerText.text = "Запись... нажмите ещё раз для остановки.";
+    }
+
+    private void StopAndSend()
+    {
+        string mic = Microphone.devices[0];
+        int position = Microphone.GetPosition(mic);
+        Microphone.End(mic);
+        isRecording = false;
+
+        float[] samples = new float[position];
+        recording.GetData(samples, 0);
+
+        byte[] wav = EncodeToWav(samples, sampleRate);
+        string base64 = Convert.ToBase64String(wav);
+
+        answerText.text = "Обработка...";
+        StartCoroutine(SendVoiceRequest(base64));
+    }
+
+    private IEnumerator SendVoiceRequest(string audioBase64)
+    {
+        var data = new Dictionary<string, object>
+        {
+            { "audioBase64", audioBase64 },
+            { "language", language }
+        };
+
+        var task = functions
+            .GetHttpsCallable("museumVoiceGuide")
+            .CallAsync(data);
+
+        yield return new WaitUntil(() => task.IsCompleted);
+
+        if (task.IsFaulted)
+        {
+            answerText.text = "Ошибка. Попробуйте снова.";
+            Debug.LogError(task.Exception);
+            yield break;
+        }
+
+        var result = task.Result.Data
+            as IDictionary<string, object>;
+        if (result == null) yield break;
+
+        string question = result.ContainsKey("question")
+            ? result["question"].ToString() : "";
+        string answer = result.ContainsKey("answer")
+            ? result["answer"].ToString() : "";
+        answerText.text = $"Вопрос: {question}\nОтвет: {answer}";
+
+        if (result.TryGetValue("audioBase64", out var audio))
+        {
+            string b64 = audio.ToString();
+            if (!string.IsNullOrEmpty(b64))
+                StartCoroutine(PlayMp3FromBase64(b64));
+        }
+    }
+
+    // ── WAV encoder (PCM 16-bit mono) ─────────────────────
+    private byte[] EncodeToWav(float[] samples, int rate)
+    {
+        int sampleCount = samples.Length;
+        int byteCount = sampleCount * 2;
+        byte[] wav = new byte[44 + byteCount];
+
+        System.Text.Encoding.ASCII.GetBytes("RIFF")
+            .CopyTo(wav, 0);
+        BitConverter.GetBytes(36 + byteCount).CopyTo(wav, 4);
+        System.Text.Encoding.ASCII.GetBytes("WAVE")
+            .CopyTo(wav, 8);
+        System.Text.Encoding.ASCII.GetBytes("fmt ")
+            .CopyTo(wav, 12);
+        BitConverter.GetBytes(16).CopyTo(wav, 16);
+        BitConverter.GetBytes((short)1).CopyTo(wav, 20);
+        BitConverter.GetBytes((short)1).CopyTo(wav, 22);
+        BitConverter.GetBytes(rate).CopyTo(wav, 24);
+        BitConverter.GetBytes(rate * 2).CopyTo(wav, 28);
+        BitConverter.GetBytes((short)2).CopyTo(wav, 32);
+        BitConverter.GetBytes((short)16).CopyTo(wav, 34);
+        System.Text.Encoding.ASCII.GetBytes("data")
+            .CopyTo(wav, 36);
+        BitConverter.GetBytes(byteCount).CopyTo(wav, 40);
+
+        int offset = 44;
+        for (int i = 0; i < sampleCount; i++)
+        {
+            short s = (short)(Mathf.Clamp(
+                samples[i], -1f, 1f) * 32767);
+            BitConverter.GetBytes(s).CopyTo(wav, offset);
+            offset += 2;
+        }
+        return wav;
+    }
+
+    private IEnumerator PlayMp3FromBase64(string base64)
+    {
+        byte[] mp3Bytes = Convert.FromBase64String(base64);
+        string path = System.IO.Path.Combine(
+            Application.temporaryCachePath, "voice_answer.mp3");
+        System.IO.File.WriteAllBytes(path, mp3Bytes);
+
+        using (var www = UnityWebRequestMultimedia.GetAudioClip(
+            "file://" + path, AudioType.MPEG))
+        {
+            yield return www.SendWebRequest();
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                audioSource.clip =
+                    DownloadHandlerAudioClip.GetContent(www);
+                audioSource.Play();
+            }
+        }
+    }
+}
+```
+
+### 5. Настройка сцены
+
+1. Создайте Canvas с `InputField`, `Button`, `Text` и `AudioSource`
+2. Прикрепите один из скриптов выше к пустому GameObject
 3. Свяжите UI-элементы через Inspector
-4. `Button.OnClick` → `MuseumGuide.AskQuestion()`
+4. Для текста: `Button.OnClick` → `AskQuestion()`
+5. Для голоса: `Button.OnClick` → `ToggleRecording()`
 
-### 4. Аутентификация
+### 6. Аутентификация
 
 По умолчанию callable-функции Firebase требуют аутентификацию.
 Для быстрого старта включите **анонимную аутентификацию**:
