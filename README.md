@@ -14,12 +14,17 @@ Unity App
    │  HTTPS callable
    ▼
 Firebase Cloud Function
-   ├── museumGuide        (text → text)
+   ├── museumGuide            (text → text)
    │     1. Load exhibits from Firestore
    │     2. Build context + system prompt
    │     3. Call OpenAI GPT → answer
    │
-   └── museumVoiceGuide   (voice → voice)
+   ├── museumGuideWithAudio   (text → text + audio)
+   │     1. Load exhibits from Firestore
+   │     2. GPT → generate answer
+   │     3. TTS → synthesize speech
+   │
+   └── museumVoiceGuide       (voice → text + audio)
          1. Whisper STT  → transcribe audio
          2. Load exhibits from Firestore
          3. GPT           → generate answer
@@ -176,6 +181,34 @@ curl -s -X POST \
 {
   "result": {
     "answer": "HAL 9000 is the sentient computer from Stanley Kubrick's 2001: A Space Odyssey..."
+  }
+}
+```
+
+### Test Text + Audio Guide (PowerShell)
+
+```powershell
+$resp = Invoke-RestMethod `
+  -Uri "https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideWithAudio" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"data":{"question":"Tell me about HAL 9000"}}'
+
+# Text answer
+$resp.result.answer
+
+# Save audio to file
+[IO.File]::WriteAllBytes("answer.mp3",
+  [Convert]::FromBase64String($resp.result.audioBase64))
+```
+
+### Expected text + audio response
+
+```json
+{
+  "result": {
+    "answer": "HAL 9000 is the sentient computer from...",
+    "audioBase64": "<base64-encoded MP3>"
   }
 }
 ```
@@ -359,6 +392,7 @@ You can:
 | Upload / update exhibits         | `cd functions && npm run build && node lib/uploadFacts.js` |
 | Set / update secret              | `firebase functions:secrets:set MUSEUM_AI`     |
 | Function logs (text)             | `firebase functions:log --only museumGuide`    |
+| Function logs (text+audio)       | `firebase functions:log --only museumGuideWithAudio` |
 | Function logs (voice)            | `firebase functions:log --only museumVoiceGuide` |
 | Local emulator                   | `cd functions && npm run serve`                |
 

@@ -14,12 +14,17 @@ Unity App
    │  HTTPS callable
    ▼
 Firebase Cloud Function
-   ├── museumGuide        (текст → текст)
+   ├── museumGuide            (текст → текст)
    │     1. Читает экспонаты из Firestore
    │     2. Формирует контекст + системный промпт
    │     3. Вызывает OpenAI GPT → ответ
    │
-   └── museumVoiceGuide   (голос → голос)
+   ├── museumGuideWithAudio   (текст → текст + аудио)
+   │     1. Читает экспонаты из Firestore
+   │     2. GPT → генерация ответа
+   │     3. TTS → синтез речи
+   │
+   └── museumVoiceGuide       (голос → текст + аудио)
          1. Whisper STT  → расшифровка аудио
          2. Читает экспонаты из Firestore
          3. GPT           → генерация ответа
@@ -176,6 +181,34 @@ curl -s -X POST \
 {
   "result": {
     "answer": "HAL 9000 is the sentient computer from Stanley Kubrick's 2001: A Space Odyssey..."
+  }
+}
+```
+
+### Тест текст + аудио (PowerShell)
+
+```powershell
+$resp = Invoke-RestMethod `
+  -Uri "https://us-central1-<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideWithAudio" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"data":{"question":"Tell me about HAL 9000"}}'
+
+# Текстовый ответ
+$resp.result.answer
+
+# Сохранить аудио в файл
+[IO.File]::WriteAllBytes("answer.mp3",
+  [Convert]::FromBase64String($resp.result.audioBase64))
+```
+
+### Ожидаемый ответ (текст + аудио)
+
+```json
+{
+  "result": {
+    "answer": "HAL 9000 is the sentient computer from...",
+    "audioBase64": "<base64-encoded MP3>"
   }
 }
 ```
@@ -357,6 +390,7 @@ FirebaseAuth.DefaultInstance
 | Загрузить/обновить экспонаты    | `cd functions && npm run build && node lib/uploadFacts.js` |
 | Задать/обновить секрет          | `firebase functions:secrets:set MUSEUM_AI`     |
 | Логи функции (текст)            | `firebase functions:log --only museumGuide`    |
+| Логи функции (текст+аудио)      | `firebase functions:log --only museumGuideWithAudio` |
 | Логи функции (голос)            | `firebase functions:log --only museumVoiceGuide` |
 | Эмулятор (локально)             | `cd functions && npm run serve`                |
 
