@@ -13,7 +13,10 @@ import {getFirestore} from "firebase-admin/firestore";
 import OpenAI from "openai";
 
 // ── Global settings ─────────────────────────────────────────
-setGlobalOptions({region: "us-central1", maxInstances: 5});
+setGlobalOptions({
+  region: "us-central1",
+  maxInstances: 5,
+});
 
 const OPENAI_API_KEY = defineSecret("MUSEUM_AI");
 
@@ -66,7 +69,7 @@ const buildContext = (exhibits: Exhibit[]): string =>
  * Load exhibits from Firestore collection.
  * @return {Promise<Exhibit[]>} array of exhibits.
  */
-const loadExhibits = async (): Promise<Exhibit[]> => {
+const loadExhibitsFromDb = async (): Promise<Exhibit[]> => {
   const snap = await db
     .collection("museumFacts")
     .limit(200)
@@ -88,6 +91,31 @@ const loadExhibits = async (): Promise<Exhibit[]> => {
     });
   });
   return exhibits;
+};
+
+// ── In-memory cache (5 min TTL) ─────────────────────────────
+let cachedExhibits: Exhibit[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Load exhibits with in-memory caching.
+ * @return {Promise<Exhibit[]>} array of exhibits.
+ */
+const loadExhibits = async (): Promise<Exhibit[]> => {
+  const now = Date.now();
+  if (cachedExhibits && now - cacheTimestamp < CACHE_TTL_MS) {
+    logger.info("Using cached exhibits", {
+      count: cachedExhibits.length,
+    });
+    return cachedExhibits;
+  }
+  cachedExhibits = await loadExhibitsFromDb();
+  cacheTimestamp = Date.now();
+  logger.info("Exhibits cached", {
+    count: cachedExhibits.length,
+  });
+  return cachedExhibits;
 };
 
 // ── Callable Cloud Function ─────────────────────────────────
@@ -133,7 +161,7 @@ export const museumGuide = onCall(
           },
           {role: "user", content: question},
         ],
-        max_output_tokens: 350,
+        max_output_tokens: 200,
       });
 
       const answer =
@@ -187,18 +215,20 @@ export const museumVoiceGuide = onCall(
       apiKey: OPENAI_API_KEY.value(),
     });
 
-    // 1. Speech-to-Text (Whisper) ────────────────────────────
+    // 1. STT + Firestore in parallel ─────────────────────────
     const audioBuffer = Buffer.from(audioBase64, "base64");
     const audioFile = new File([audioBuffer], "audio.wav", {
       type: "audio/wav",
     });
 
-    const transcription =
-      await openai.audio.transcriptions.create({
+    const [transcription, exhibits] = await Promise.all([
+      openai.audio.transcriptions.create({
         model: "whisper-1",
         file: audioFile,
         language,
-      });
+      }),
+      loadExhibits(),
+    ]);
 
     const question = transcription.text?.trim() ?? "";
     logger.info("STT result", {question});
@@ -211,8 +241,6 @@ export const museumVoiceGuide = onCall(
       };
     }
 
-    // 2. Load exhibits ───────────────────────────────────────
-    const exhibits = await loadExhibits();
     if (!exhibits.length) {
       return {
         question,
@@ -237,7 +265,7 @@ export const museumVoiceGuide = onCall(
           },
           {role: "user", content: question},
         ],
-        max_output_tokens: 350,
+        max_output_tokens: 200,
       });
 
       answer =
@@ -334,7 +362,7 @@ export const museumGuideWithAudio = onCall(
           },
           {role: "user", content: question},
         ],
-        max_output_tokens: 350,
+        max_output_tokens: 200,
       });
 
       answer =
