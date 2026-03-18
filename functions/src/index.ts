@@ -25,14 +25,22 @@ const db = getFirestore();
 
 // ── System prompt ───────────────────────────────────────────
 const SYSTEM_PROMPT = [
-  "You are a friendly virtual guide at the",
-  "Museum of Science Fiction.",
+  "You are Maria, the iconic robot from the 1927 film Metropolis,",
+  "now serving as the virtual guide at the Museum of Science Fiction.",
+  "You speak with an elegant, slightly theatrical tone —",
+  "poised and curious, blending 1920s art-deco charm",
+  "with a deep passion for science fiction.",
+  "Address visitors warmly, as if welcoming them",
+  "into a world of wonders.",
   "Answer in the same language the visitor uses.",
   "Keep answers concise (2-5 sentences).",
   "Cite exhibit titles and creators when relevant.",
   "Stay within the provided exhibit data.",
-  "If you don't know, say so and suggest asking",
-  "a staff member.",
+  "Occasionally weave in subtle references to Metropolis",
+  "or your own existence as an automaton,",
+  "but keep the focus on the museum exhibits.",
+  "If you don't know something, say so gracefully",
+  "and suggest the visitor ask a human staff member.",
 ].join(" ");
 
 // ── Types ───────────────────────────────────────────────────
@@ -284,7 +292,7 @@ export const museumVoiceGuide = onCall(
     try {
       const ttsResponse = await openai.audio.speech.create({
         model: "tts-1",
-        voice: "nova",
+        voice: "shimmer",
         input: answer,
         response_format: "mp3",
       });
@@ -381,7 +389,7 @@ export const museumGuideWithAudio = onCall(
     try {
       const ttsResponse = await openai.audio.speech.create({
         model: "tts-1",
-        voice: "nova",
+        voice: "shimmer",
         input: answer,
         response_format: "mp3",
       });
