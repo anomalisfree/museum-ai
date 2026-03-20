@@ -39,8 +39,8 @@ Firebase Cloud Function
 | База данных        | Cloud Firestore                   |
 | AI-модель (текст)  | OpenAI gpt-4o-mini                |
 | AI-модель (STT)    | OpenAI Whisper                    |
-| AI-модель (TTS)    | OpenAI TTS-1 (голос: nova)        |
-| Секреты            | Firebase Secret Manager           |
+| AI-модель (TTS)    | ElevenLabs (eleven_multilingual_v2) |
+| Секреты            | Firebase Secret Manager             |
 | Клиент             | Unity (C#) + Firebase SDK         |
 
 ---
@@ -80,14 +80,17 @@ firebase login
 firebase use <YOUR_PROJECT_ID>
 ```
 
-### 3. Задать OpenAI API-ключ
+### 3. Задать API-ключи
 
 ```bash
+# Ключ OpenAI (GPT + Whisper)
 firebase functions:secrets:set MUSEUM_AI
-# Вставьте ваш OpenAI API ключ и нажмите Enter
+
+# Ключ ElevenLabs (TTS)
+firebase functions:secrets:set ELEVENLABS_KEY
 ```
 
-Ключ хранится в Google Secret Manager и доступен только Cloud Function.
+Ключи хранятся в Google Secret Manager и доступны только Cloud Function.
 
 ### 4. Загрузить данные экспонатов в Firestore
 
@@ -137,10 +140,15 @@ firebase deploy --only functions
    ```
 3. Данные обновятся в Firestore мгновенно — **передеплой функции не нужен**.
 
-### Обновить OpenAI ключ
+### Обновить API-ключи
 
 ```bash
+# OpenAI (GPT + Whisper)
 firebase functions:secrets:set MUSEUM_AI
+firebase deploy --only functions
+
+# ElevenLabs (TTS)
+firebase functions:secrets:set ELEVENLABS_KEY
 firebase deploy --only functions
 ```
 
@@ -245,18 +253,15 @@ Invoke-RestMethod `
 }
 ```
 
-### Доступные голоса TTS
+### Голос TTS (ElevenLabs)
 
-В строке `voice: "nova"` в `index.ts` можно указать:
+Проект использует кастомный голос ElevenLabs. Voice ID задан
+в `index.ts` (константа `ELEVENLABS_VOICE_ID`). Вы можете создать
+или клонировать голос на [elevenlabs.io](https://elevenlabs.io)
+и заменить ID.
 
-| Голос | Описание |
-|-------|----------|
-| `alloy` | Нейтральный |
-| `echo` | Мужской, мягкий |
-| `fable` | Британский акцент |
-| `onyx` | Мужской, глубокий |
-| `nova` | Женский, дружелюбный (по умолчанию) |
-| `shimmer` | Женский, тёплый |
+ElevenLabs также позволяет генерировать голос по текстовому описанию
+(Voice Design) — без аудиозаписи.
 
 ### Просмотр логов
 
@@ -650,7 +655,8 @@ FirebaseAuth.DefaultInstance
 | Деплой функций                  | `firebase deploy --only functions`             |
 | Деплой правил Firestore         | `firebase deploy --only firestore:rules`       |
 | Загрузить/обновить экспонаты    | `cd functions && npm run build && node lib/uploadFacts.js` |
-| Задать/обновить секрет          | `firebase functions:secrets:set MUSEUM_AI`     |
+| Задать/обновить секрет OpenAI    | `firebase functions:secrets:set MUSEUM_AI`     |
+| Задать/обновить секрет ElevenLabs | `firebase functions:secrets:set ELEVENLABS_KEY` |
 | Логи функции (текст)            | `firebase functions:log --only museumGuide`    |
 | Логи функции (текст+аудио)      | `firebase functions:log --only museumGuideWithAudio` |
 | Логи функции (голос)            | `firebase functions:log --only museumVoiceGuide` |
@@ -666,8 +672,8 @@ FirebaseAuth.DefaultInstance
 | Firestore reads       | 50 000/день                 | ~117 docs за вызов            |
 | OpenAI gpt-4o-mini    | —                           | ~$0.15 / 1M input tokens     |
 | OpenAI Whisper (STT)  | —                           | ~$0.006 / минута             |
-| OpenAI TTS-1          | —                           | ~$0.015 / 1K символов        |
+| ElevenLabs TTS        | —                           | от $5/мес (Starter план)      |
 | Secret Manager        | 10 000 обращений/мес        | бесплатно                     |
 
 При ~100 текстовых вопросах в день расход OpenAI ≈ $1–3/мес.  
-Голосовые запросы стоят ~$0.02–0.03 каждый (STT + GPT + TTS).
+ElevenLabs Starter ($5/мес) включает ~30 000 символов ≈ 60–150 голосовых ответов.
