@@ -1,7 +1,8 @@
 // ============================================================
 //  Museum of Science Fiction — Virtual Guide (Cloud Function)
 //  Model: gpt-4o-mini  |  Region: us-central1
-//  Secret: MUSEUM_AI (OpenAI API key)
+//  Secrets: MUSEUM_AI (OpenAI), ELEVENLABS_KEY (ElevenLabs)
+//  TTS: ElevenLabs (eleven_multilingual_v2)
 // ============================================================
 
 import {defineSecret} from "firebase-functions/params";
@@ -19,6 +20,12 @@ setGlobalOptions({
 });
 
 const OPENAI_API_KEY = defineSecret("MUSEUM_AI");
+const ELEVENLABS_KEY = defineSecret("ELEVENLABS_KEY");
+
+// ── ElevenLabs TTS settings ─────────────────────────────────
+const ELEVENLABS_VOICE_ID = "9eBBEwRYRiHvTUXIvbbl";
+const ELEVENLABS_TTS_URL =
+  `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
 
 if (!getApps().length) initializeApp();
 const db = getFirestore();
@@ -201,7 +208,7 @@ export const museumGuide = onCall(
  */
 export const museumVoiceGuide = onCall(
   {
-    secrets: [OPENAI_API_KEY],
+    secrets: [OPENAI_API_KEY, ELEVENLABS_KEY],
     timeoutSeconds: 120,
   },
   async (request) => {
@@ -287,16 +294,24 @@ export const museumVoiceGuide = onCall(
       );
     }
 
-    // 4. Text-to-Speech ──────────────────────────────────────
+    // 4. Text-to-Speech (ElevenLabs) ─────────────────────────
     let ttsBase64 = "";
     try {
-      const ttsResponse = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "shimmer",
-        input: answer,
-        response_format: "mp3",
+      const ttsResponse = await fetch(ELEVENLABS_TTS_URL, {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_KEY.value(),
+          "Content-Type": "application/json",
+          "Accept": "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: answer,
+          model_id: "eleven_multilingual_v2",
+        }),
       });
-
+      if (!ttsResponse.ok) {
+        throw new Error(`ElevenLabs ${ttsResponse.status}`);
+      }
       const ttsBuffer = Buffer.from(
         await ttsResponse.arrayBuffer()
       );
@@ -305,6 +320,19 @@ export const museumVoiceGuide = onCall(
       logger.error("voiceGuide TTS FAIL", err);
       // Return text answer even if TTS fails
     }
+
+    // -- Old OpenAI TTS (kept for reference) ------------------
+    // const ttsResponse = await openai.audio.speech.create({
+    //   model: "tts-1",
+    //   voice: "shimmer",
+    //   input: answer,
+    //   response_format: "mp3",
+    // });
+    // const ttsBuffer = Buffer.from(
+    //   await ttsResponse.arrayBuffer()
+    // );
+    // ttsBase64 = ttsBuffer.toString("base64");
+    // ---------------------------------------------------------
 
     logger.info("museumVoiceGuide OK", {
       question,
@@ -326,7 +354,7 @@ export const museumVoiceGuide = onCall(
  */
 export const museumGuideWithAudio = onCall(
   {
-    secrets: [OPENAI_API_KEY],
+    secrets: [OPENAI_API_KEY, ELEVENLABS_KEY],
     timeoutSeconds: 120,
   },
   async (request) => {
@@ -384,16 +412,24 @@ export const museumGuideWithAudio = onCall(
       );
     }
 
-    // 4. Text-to-Speech ──────────────────────────────────────
+    // 4. Text-to-Speech (ElevenLabs) ─────────────────────────
     let ttsBase64 = "";
     try {
-      const ttsResponse = await openai.audio.speech.create({
-        model: "tts-1",
-        voice: "shimmer",
-        input: answer,
-        response_format: "mp3",
+      const ttsResponse = await fetch(ELEVENLABS_TTS_URL, {
+        method: "POST",
+        headers: {
+          "xi-api-key": ELEVENLABS_KEY.value(),
+          "Content-Type": "application/json",
+          "Accept": "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: answer,
+          model_id: "eleven_multilingual_v2",
+        }),
       });
-
+      if (!ttsResponse.ok) {
+        throw new Error(`ElevenLabs ${ttsResponse.status}`);
+      }
       const ttsBuffer = Buffer.from(
         await ttsResponse.arrayBuffer()
       );
@@ -402,6 +438,19 @@ export const museumGuideWithAudio = onCall(
       logger.error("guideWithAudio TTS FAIL", err);
       // Return text answer even if TTS fails
     }
+
+    // -- Old OpenAI TTS (kept for reference) ------------------
+    // const ttsResponse = await openai.audio.speech.create({
+    //   model: "tts-1",
+    //   voice: "shimmer",
+    //   input: answer,
+    //   response_format: "mp3",
+    // });
+    // const ttsBuffer = Buffer.from(
+    //   await ttsResponse.arrayBuffer()
+    // );
+    // ttsBase64 = ttsBuffer.toString("base64");
+    // ---------------------------------------------------------
 
     logger.info("museumGuideWithAudio OK", {
       question,
