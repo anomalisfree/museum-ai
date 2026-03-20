@@ -23,6 +23,7 @@ const OPENAI_API_KEY = defineSecret("MUSEUM_AI");
 const ELEVENLABS_KEY = defineSecret("ELEVENLABS_KEY");
 
 // ── ElevenLabs TTS settings ─────────────────────────────────
+// Model: eleven_multilingual_v2 (29 languages)
 const ELEVENLABS_VOICE_ID = "9eBBEwRYRiHvTUXIvbbl";
 const ELEVENLABS_TTS_URL =
   `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
@@ -310,7 +311,10 @@ export const museumVoiceGuide = onCall(
         }),
       });
       if (!ttsResponse.ok) {
-        throw new Error(`ElevenLabs ${ttsResponse.status}`);
+        const errBody = await ttsResponse.text();
+        throw new Error(
+          `ElevenLabs ${ttsResponse.status}: ${errBody}`
+        );
       }
       const ttsBuffer = Buffer.from(
         await ttsResponse.arrayBuffer()
@@ -428,7 +432,10 @@ export const museumGuideWithAudio = onCall(
         }),
       });
       if (!ttsResponse.ok) {
-        throw new Error(`ElevenLabs ${ttsResponse.status}`);
+        const errBody = await ttsResponse.text();
+        throw new Error(
+          `ElevenLabs ${ttsResponse.status}: ${errBody}`
+        );
       }
       const ttsBuffer = Buffer.from(
         await ttsResponse.arrayBuffer()
