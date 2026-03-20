@@ -24,7 +24,7 @@ const ELEVENLABS_KEY = defineSecret("ELEVENLABS_KEY");
 
 // ── ElevenLabs TTS settings ─────────────────────────────────
 // Model: eleven_multilingual_v2 (29 languages)
-const ELEVENLABS_VOICE_ID = "9eBBEwRYRiHvTUXIvbbl";
+const ELEVENLABS_VOICE_ID = "TfOkTMvLYzgpJ01mn1zA";
 const ELEVENLABS_TTS_URL =
   `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`;
 
