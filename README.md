@@ -11,7 +11,7 @@ forwards it to OpenAI along with exhibit data → returns an answer
 
 ```
 Unity App
-   │  HTTPS callable
+   │  HTTPS callable / HTTP request
    ▼
 Firebase Cloud Function
    ├── museumGuide            (text → text)
@@ -24,13 +24,17 @@ Firebase Cloud Function
    │     2. GPT → generate answer
    │     3. TTS → synthesize speech
    │
-   └── museumVoiceGuide       (voice → text + audio)
-         1. Whisper STT  → transcribe audio
-         2. Load exhibits from Firestore
-         3. GPT           → generate answer
-         4. TTS           → synthesize speech
+   ├── museumVoiceGuide       (voice → text + audio)
+   │     1. Whisper STT  → transcribe audio
+   │     2. Load exhibits from Firestore
+   │     3. GPT           → generate answer
+   │     4. TTS           → synthesize speech
+   │
+   └── museumGuideStreaming   (text → streaming audio)
+         1. Load exhibits from Firestore
+         2. GPT stream + ElevenLabs WS → audio chunks
    ▼
-Answer (text + audio) → Unity UI
+Answer (text + audio / streaming audio) → Unity UI
 ```
 
 | Component          | Technology                        |
@@ -252,6 +256,23 @@ Invoke-RestMethod `
   }
 }
 ```
+
+### Test Streaming Guide (PowerShell)
+
+For low-latency audio streaming (GPT + TTS in parallel).
+
+```powershell
+# Stream audio to file
+Invoke-WebRequest `
+  -Uri "https://<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideStreaming?question=Tell me about HAL 9000" `
+  -OutFile "streaming_audio.mp3"
+```
+
+The response is a streaming MP3 audio file. Play it immediately as chunks arrive.
+
+### Expected streaming response
+
+Binary MP3 data streamed in chunks (no JSON wrapper).
 
 ### TTS Voice (ElevenLabs)
 
@@ -609,7 +630,57 @@ public class MuseumVoiceGuide : MonoBehaviour
 }
 ```
 
-### 5. Scene setup
+### 5. Streaming Audio — `museumGuideStreaming` (C#)
+
+Send a text question, receive **streaming MP3 audio** response (low latency).
+
+```csharp
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+public class MuseumGuideStreaming : MonoBehaviour
+{
+    [SerializeField] private InputField questionInput;
+    [SerializeField] private AudioSource audioSource;
+
+    public void AskStreamingQuestion()
+    {
+        string question = questionInput.text.Trim();
+        if (string.IsNullOrEmpty(question)) return;
+
+        StartCoroutine(StreamAudio(question));
+    }
+
+    private IEnumerator StreamAudio(string question)
+    {
+        string url = $"https://<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideStreaming?question={UnityWebRequest.EscapeURL(question)}";
+
+        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(url, AudioType.MPEG))
+        {
+            www.SendWebRequest();
+
+            // Wait for download to start
+            yield return new WaitUntil(() => www.downloadProgress > 0 || www.isDone);
+
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
+                audioSource.clip = clip;
+                audioSource.Play();
+            }
+            else
+            {
+                Debug.LogError("Streaming failed: " + www.error);
+            }
+        }
+    }
+}
+```
+
+### 6. Scene setup
 
 1. Create a Canvas with `InputField`, `Button`, `Text`, and `AudioSource`
 2. Attach one of the scripts above to an empty GameObject
@@ -665,6 +736,7 @@ You can:
 | Function logs (text)             | `firebase functions:log --only museumGuide`    |
 | Function logs (text+audio)       | `firebase functions:log --only museumGuideWithAudio` |
 | Function logs (voice)            | `firebase functions:log --only museumVoiceGuide` |
+| Function logs (streaming)        | `firebase functions:log --only museumGuideStreaming` |
 | Local emulator                   | `cd functions && npm run serve`                |
 
 ---
@@ -677,6 +749,7 @@ You can:
 | Firestore reads      | 50,000/day                  | ~117 docs per invocation       |
 | OpenAI gpt-4o-mini   | —                           | ~$0.15 / 1M input tokens      |
 | OpenAI Whisper (STT) | —                           | ~$0.006 / minute              |
+| ElevenLabs TTS       | —                           | ~$0.18 / 1K characters       |
 | ElevenLabs TTS       | —                           | from $5/mo (Starter plan)      |
 | Secret Manager       | 10,000 accesses/month       | free                           |
 

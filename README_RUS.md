@@ -11,7 +11,7 @@ Unity-приложение отправляет вопрос (текст или 
 
 ```
 Unity App
-   │  HTTPS callable
+   │  HTTPS callable / HTTP request
    ▼
 Firebase Cloud Function
    ├── museumGuide            (текст → текст)
@@ -24,13 +24,17 @@ Firebase Cloud Function
    │     2. GPT → генерация ответа
    │     3. TTS → синтез речи
    │
-   └── museumVoiceGuide       (голос → текст + аудио)
-         1. Whisper STT  → расшифровка аудио
-         2. Читает экспонаты из Firestore
-         3. GPT           → генерация ответа
-         4. TTS           → синтез речи
+   ├── museumVoiceGuide       (голос → текст + аудио)
+   │     1. Whisper STT  → расшифровка аудио
+   │     2. Читает экспонаты из Firestore
+   │     3. GPT           → генерация ответа
+   │     4. TTS           → синтез речи
+   │
+   └── museumGuideStreaming   (текст → стрим аудио)
+         1. Читает экспонаты из Firestore
+         2. GPT стрим + ElevenLabs WS → аудио чанки
    ▼
-Ответ (текст + аудио) → Unity UI
+Ответ (текст + аудио / стрим аудио) → Unity UI
 ```
 
 | Компонент          | Технология                        |
@@ -252,6 +256,23 @@ Invoke-RestMethod `
   }
 }
 ```
+
+### Тест стримингового гида (PowerShell)
+
+Для низколатентного стриминга аудио (GPT + TTS параллельно).
+
+```powershell
+# Стрим аудио в файл
+Invoke-WebRequest `
+  -Uri "https://<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideStreaming?question=Tell me about HAL 9000" `
+  -OutFile "streaming_audio.mp3"
+```
+
+Ответ — стриминговый MP3 файл. Проигрывайте по мере поступления чанков.
+
+### Ожидаемый стриминговый ответ
+
+Бинарные MP3 данные, стриминговые в чанках (без JSON обёртки).
 
 ### Голос TTS (ElevenLabs)
 
@@ -606,15 +627,66 @@ public class MuseumVoiceGuide : MonoBehaviour
 }
 ```
 
-### 5. Настройка сцены
+### 5. Стриминговое аудио — `museumGuideStreaming` (C#)
+
+Отправьте текстовый вопрос, получите **стриминговый MP3 аудио** ответ (низкая латентность).
+
+```csharp
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.UI;
+
+public class MuseumGuideStreaming : MonoBehaviour
+{
+    [SerializeField] private InputField questionInput;
+    [SerializeField] private AudioSource audioSource;
+
+    public void AskStreamingQuestion()
+    {
+        string question = questionInput.text.Trim();
+        if (string.IsNullOrEmpty(question)) return;
+
+        StartCoroutine(StreamAudio(question));
+    }
+
+    private IEnumerator StreamAudio(string question)
+    {
+        string url = $"https://<YOUR_PROJECT_ID>.cloudfunctions.net/museumGuideStreaming?question={UnityWebRequest.EscapeURL(question)}";
+
+        using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(url, AudioType.MPEG))
+        {
+            www.SendWebRequest();
+
+            // Ждём начала загрузки
+            yield return new WaitUntil(() => www.downloadProgress > 0 || www.isDone);
+
+            if (www.result == UnityWebRequest.Result.Success)
+            {
+                AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
+                audioSource.clip = clip;
+                audioSource.Play();
+            }
+            else
+            {
+                Debug.LogError("Streaming failed: " + www.error);
+            }
+        }
+    }
+}
+```
+
+### 6. Настройка сцены
 
 1. Создайте Canvas с `InputField`, `Button`, `Text` и `AudioSource`
 2. Прикрепите один из скриптов выше к пустому GameObject
 3. Свяжите UI-элементы через Inspector
 4. Для текста: `Button.OnClick` → `AskQuestion()`
 5. Для голоса: `Button.OnClick` → `ToggleRecording()`
+6. Для стриминга: `Button.OnClick` → `AskStreamingQuestion()`
 
-### 6. Аутентификация
+### 7. Аутентификация
 
 По умолчанию callable-функции Firebase требуют аутентификацию.
 Для быстрого старта включите **анонимную аутентификацию**:
@@ -660,6 +732,7 @@ FirebaseAuth.DefaultInstance
 | Логи функции (текст)            | `firebase functions:log --only museumGuide`    |
 | Логи функции (текст+аудио)      | `firebase functions:log --only museumGuideWithAudio` |
 | Логи функции (голос)            | `firebase functions:log --only museumVoiceGuide` |
+| Логи функции (стриминг)         | `firebase functions:log --only museumGuideStreaming` |
 | Эмулятор (локально)             | `cd functions && npm run serve`                |
 
 ---

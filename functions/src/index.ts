@@ -7,11 +7,12 @@
 
 import {defineSecret} from "firebase-functions/params";
 import {setGlobalOptions} from "firebase-functions/v2/options";
-import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onCall, HttpsError, onRequest} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import {getApps, initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import OpenAI from "openai";
+import WebSocket from "ws";
 
 // ── Global settings ─────────────────────────────────────────
 setGlobalOptions({
@@ -468,3 +469,123 @@ export const museumGuideWithAudio = onCall(
     return {answer, audioBase64: ttsBase64};
   }
 );
+
+// ── Streaming Guide: GPT + TTS Stream ──────────────────────
+
+/**
+ * HTTP Cloud Function for streaming GPT + TTS.
+ * Accepts GET/POST with 'question' param, streams audio response.
+ * @param {Request} req - HTTP request with query.question
+ * @param {Response} res - HTTP response streaming audio/mpeg
+ */
+/*
+export const museumGuideStreaming = onRequest(
+  {
+    secrets: [OPENAI_API_KEY, ELEVENLABS_KEY],
+    timeoutSeconds: 300,
+  },
+  async (req, res) => {
+    // 1. Validate input ──────────────────────────────────────
+    const question = (req.query.question as string | undefined)?.trim() ||
+                     (req.body?.question as string | undefined)?.trim();
+    if (!question) {
+      res.status(400).send("'question' is required.");
+      return;
+    }
+
+    // 2. Load exhibits ───────────────────────────────────────
+    const exhibits = await loadExhibits();
+    if (!exhibits.length) {
+      res.status(500).send("Museum data is not loaded yet.");
+      return;
+    }
+
+    // 3. Prepare OpenAI stream ───────────────────────────────
+    const openai = new OpenAI({
+      apiKey: OPENAI_API_KEY.value(),
+    });
+
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {role: "system", content: SYSTEM_PROMPT},
+        {
+          role: "system",
+          content: "Exhibit data:\n" + buildContext(exhibits),
+        },
+        {role: "user", content: question},
+      ],
+      max_tokens: 200,
+      stream: true,
+    });
+
+    // 4. Setup ElevenLabs WebSocket ──────────────────────────
+    const wsUrl = `wss://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream-input?model_id=eleven_monolingual_v1`;
+    const ws = new WebSocket(wsUrl, {
+      headers: {
+        "xi-api-key": ELEVENLABS_KEY.value(),
+      },
+    });
+
+    let isWsOpen = false;
+
+    // Set response headers for streaming audio
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Transfer-Encoding", "chunked");
+
+    ws.on("open", () => {
+      isWsOpen = true;
+      logger.info("ElevenLabs WS open");
+      // Send initial config
+      ws.send(JSON.stringify({
+        text: " ", // Initial empty text
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.8,
+        },
+        generation_config: {
+          chunk_length_schedule: [50],
+        },
+      }));
+    });
+
+    ws.on("message", (data: Buffer) => {
+      // Audio chunk received, send to response
+      res.write(data);
+    });
+
+    ws.on("error", (err: Error) => {
+      logger.error("ElevenLabs WS error", err);
+      res.end();
+    });
+
+    ws.on("close", () => {
+      logger.info("ElevenLabs WS closed");
+      res.end();
+    });
+
+    // 5. Process GPT stream ──────────────────────────────────
+    try {
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          if (isWsOpen) {
+            ws.send(JSON.stringify({
+              text: content,
+              try_trigger_generation: true,
+            }));
+          }
+        }
+      }
+      // End of GPT, close WS
+      if (isWsOpen) {
+        ws.close();
+      }
+    } catch (err) {
+      logger.error("Streaming GPT FAIL", err);
+      if (isWsOpen) ws.close();
+      res.status(500).end();
+    }
+  }
+);
+*/
