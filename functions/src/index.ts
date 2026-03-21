@@ -478,7 +478,6 @@ export const museumGuideWithAudio = onCall(
  * @param {Request} req - HTTP request with query.question
  * @param {Response} res - HTTP response streaming audio/mpeg
  */
-/*
 export const museumGuideStreaming = onRequest(
   {
     secrets: [OPENAI_API_KEY, ELEVENLABS_KEY],
@@ -589,4 +588,3 @@ export const museumGuideStreaming = onRequest(
     }
   }
 );
-*/
