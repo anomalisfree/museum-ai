@@ -483,6 +483,7 @@ export const museumGuideStreaming = onRequest(
   {
     secrets: [OPENAI_API_KEY, ELEVENLABS_KEY],
     timeoutSeconds: 300,
+    invoker: "public",
   },
   async (req, res) => {
     // 1. Validate input ──────────────────────────────────────
