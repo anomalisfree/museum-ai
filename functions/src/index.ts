@@ -520,7 +520,7 @@ export const museumGuideStreaming = onRequest(
     });
 
     // 4. Setup ElevenLabs WebSocket ──────────────────────────
-    const wsUrl = `wss://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream-input?model_id=eleven_monolingual_v1`;
+    const wsUrl = `wss://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream-input?model_id=eleven_multilingual_v2`;
     const ws = new WebSocket(wsUrl, {
       headers: {
         "xi-api-key": ELEVENLABS_KEY.value(),
@@ -550,8 +550,16 @@ export const museumGuideStreaming = onRequest(
     });
 
     ws.on("message", (data: Buffer) => {
-      // Audio chunk received, send to response
-      res.write(data);
+      // Audio chunk received, parse JSON and send audio
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.audio) {
+          const audioBuffer = Buffer.from(message.audio, "base64");
+          res.write(audioBuffer);
+        }
+      } catch (err) {
+        logger.error("WS message parse error", err);
+      }
     });
 
     ws.on("error", (err: Error) => {
@@ -577,8 +585,12 @@ export const museumGuideStreaming = onRequest(
           }
         }
       }
-      // End of GPT, close WS
+      // End of GPT, send EOS and close WS
       if (isWsOpen) {
+        ws.send(JSON.stringify({
+          text: "",
+          try_trigger_generation: true,
+        }));
         ws.close();
       }
     } catch (err) {
